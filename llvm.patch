@@ -1,0 +1,218 @@
+diff --git a/clang/include/clang/Basic/CodeGenOptions.def b/clang/include/clang/Basic/CodeGenOptions.def
+index 340b08dd7e2a..1bc5a6f79996 100644
+--- a/clang/include/clang/Basic/CodeGenOptions.def
++++ b/clang/include/clang/Basic/CodeGenOptions.def
+@@ -111,7 +111,10 @@ CODEGENOPT(CFProtectionBranch , 1, 0) ///< if -fcf-protection is
+ CODEGENOPT(FunctionReturnThunks, 1, 0) ///< -mfunction-return={keep|thunk-extern}
+ CODEGENOPT(IndirectBranchCSPrefix, 1, 0) ///< if -mindirect-branch-cs-prefix
+                                          ///< is set.
+-
++CODEGENOPT(FunctionReturnNOPPrefix, 1, 0) ///< if -mreturn-nop-prefix
++                                         ///< is set.
++CODEGENOPT(IndirectBranchNOPPrefix, 1, 0) ///< if -mindirect-branch-nop-prefix
++                                         ///< is set.
+ CODEGENOPT(XRayInstrumentFunctions , 1, 0) ///< Set when -fxray-instrument is
+                                            ///< enabled.
+ CODEGENOPT(StackSizeSection  , 1, 0) ///< Set when -fstack-size-section is enabled.
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index 938d5358eeda..1dcdcc6e37e1 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -2768,6 +2768,14 @@ def mindirect_branch_cs_prefix : Flag<["-"], "mindirect-branch-cs-prefix">,
+   Group<m_Group>, Visibility<[ClangOption, CLOption, CC1Option]>,
+   HelpText<"Add cs prefix to call and jmp to indirect thunk">,
+   MarshallingInfoFlag<CodeGenOpts<"IndirectBranchCSPrefix">>;
++def mindirect_branch_nop_prefix : Flag<["-"], "mindirect-branch-nop-prefix">,
++  Group<m_Group>, Visibility<[ClangOption, CLOption, CC1Option]>,
++  HelpText<"Add nop prefix to call and jmp to indirect thunk">,
++  MarshallingInfoFlag<CodeGenOpts<"IndirectBranchNOPPrefix">>;
++def mreturn_nop_prefix : Flag<["-"], "mreturn-nop-prefix">,
++  Group<m_Group>, Visibility<[ClangOption, CLOption, CC1Option]>,
++  HelpText<"Add nop prefix to return to indirect thunk">,
++  MarshallingInfoFlag<CodeGenOpts<"FunctionReturnNOPPrefix">>;
+ 
+ defm xray_instrument : BoolFOption<"xray-instrument",
+   LangOpts<"XRayInstrument">, DefaultFalse,
+diff --git a/clang/lib/CodeGen/CodeGenModule.cpp b/clang/lib/CodeGen/CodeGenModule.cpp
+index c8898ce196c1..4c9cde969103 100644
+--- a/clang/lib/CodeGen/CodeGenModule.cpp
++++ b/clang/lib/CodeGen/CodeGenModule.cpp
+@@ -1155,6 +1155,11 @@ void CodeGenModule::Release() {
+   if (CodeGenOpts.IndirectBranchCSPrefix)
+     getModule().addModuleFlag(llvm::Module::Override, "indirect_branch_cs_prefix", 1);
+ 
++  if (CodeGenOpts.IndirectBranchNOPPrefix)
++    getModule().addModuleFlag(llvm::Module::Override, "indirect_branch_nop_prefix", 1);
++
++  if (CodeGenOpts.FunctionReturnNOPPrefix)
++    getModule().addModuleFlag(llvm::Module::Override, "return_nop_prefix", 1);
+   // Add module metadata for return address signing (ignoring
+   // non-leaf/all) and stack tagging. These are actually turned on by function
+   // attributes, but we use module metadata to emit build attributes. This is
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index f9ca76a5ac80..78bb6762ec7e 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -6884,6 +6884,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
+         Args.MakeArgString(Twine("-mfunction-return=") + A->getValue()));
+ 
+   Args.AddLastArg(CmdArgs, options::OPT_mindirect_branch_cs_prefix);
++  Args.AddLastArg(CmdArgs, options::OPT_mindirect_branch_nop_prefix);
++  Args.AddLastArg(CmdArgs, options::OPT_mreturn_nop_prefix);
+ 
+   // Forward -f options with positive and negative forms; we translate these by
+   // hand.  Do not propagate PGO options to the GPU-side compilations as the
+diff --git a/clang/test/Driver/x86_features.c b/clang/test/Driver/x86_features.c
+index 7900b1536898..0c06584cf432 100644
+--- a/clang/test/Driver/x86_features.c
++++ b/clang/test/Driver/x86_features.c
+@@ -14,3 +14,7 @@
+ 
+ // RUN: %clang --target=i386 -### %s -mindirect-branch-cs-prefix -S 2>&1 | FileCheck --check-prefix=IND-CS %s
+ // IND-CS: "-mindirect-branch-cs-prefix"
++// RUN: %clang --target=i386 -### %s -mindirect-branch-nop-prefix -S 2>&1 | FileCheck --check-prefix=IND-NOP %s
++// IND-NOP: "-mindirect-branch-nop-prefix"
++// RUN: %clang --target=i386 -### %s -mreturn-nop-prefix -S 2>&1 | FileCheck --check-prefix=RET-NOP %s
++// RET-NOP: "-mreturn-nop-prefix"
+diff --git a/llvm/lib/Target/X86/X86AsmPrinter.cpp b/llvm/lib/Target/X86/X86AsmPrinter.cpp
+index 3395a13545e4..4526d44d668b 100644
+--- a/llvm/lib/Target/X86/X86AsmPrinter.cpp
++++ b/llvm/lib/Target/X86/X86AsmPrinter.cpp
+@@ -72,6 +72,12 @@ bool X86AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
+   IndCSPrefix =
+       MF.getMMI().getModule()->getModuleFlag("indirect_branch_cs_prefix");
+ 
++  IndNOPPrefix = 
++	  MF.getMMI().getModule()->getModuleFlag("indirect_branch_nop_prefix");
++
++  RetNOPPrefix = 
++	  MF.getMMI().getModule()->getModuleFlag("return_nop_prefix");
++
+   SetupMachineFunction(MF);
+ 
+   if (Subtarget->isTargetCOFF()) {
+@@ -94,6 +100,10 @@ bool X86AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
+ 
+   IndCSPrefix = false;
+ 
++  IndNOPPrefix = false;
++
++  RetNOPPrefix = false;
++
+   // We didn't modify anything.
+   return false;
+ }
+diff --git a/llvm/lib/Target/X86/X86AsmPrinter.h b/llvm/lib/Target/X86/X86AsmPrinter.h
+index 693021eca329..78f5ca53a51b 100644
+--- a/llvm/lib/Target/X86/X86AsmPrinter.h
++++ b/llvm/lib/Target/X86/X86AsmPrinter.h
+@@ -31,6 +31,8 @@ class LLVM_LIBRARY_VISIBILITY X86AsmPrinter : public AsmPrinter {
+   bool EmitFPOData = false;
+   bool ShouldEmitWeakSwiftAsyncExtendedFramePointerFlags = false;
+   bool IndCSPrefix = false;
++  bool IndNOPPrefix = false;
++  bool RetNOPPrefix = false;
+ 
+   // This utility class tracks the length of a stackmap instruction's 'shadow'.
+   // It is used by the X86AsmPrinter to ensure that the stackmap shadow
+diff --git a/llvm/lib/Target/X86/X86MCInstLower.cpp b/llvm/lib/Target/X86/X86MCInstLower.cpp
+index 1d699b42dc67..525bd429e8e4 100644
+--- a/llvm/lib/Target/X86/X86MCInstLower.cpp
++++ b/llvm/lib/Target/X86/X86MCInstLower.cpp
+@@ -2164,19 +2164,50 @@ void X86AsmPrinter::emitInstruction(const MachineInstr *MI) {
+     }
+     break;
+   }
++  
++  case X86::CALL64r: 
++  case X86::CALL64r_NT:
++  case X86::TAILJMPr64:
++  case X86::TAILJMPr64_REX: {
++  	if (IndNOPPrefix) {
++	  assert(MI->getOperand(0).isReg());
++	  const Register AddrReg = MI->getOperand(0).getReg();
++	  if (AddrReg != X86::RAX) {
++	  	EmitAndCountInstruction(
++			MCInstBuilder(X86::MOV64rr).addReg(X86::RAX).addReg(AddrReg));
++	  }
++      emitX86Nops(*OutStreamer, 5, Subtarget);
++	}
++	break;
++  }
++  case X86::RET64:
++  case X86::RET32:
++	if (!IndCSPrefix && RetNOPPrefix) {
++      emitX86Nops(*OutStreamer, 5, Subtarget);	
++	}
++	break;
+ 
+   case X86::TAILJMPd64:
+-    if (IndCSPrefix && MI->hasRegisterImplicitUseOperand(X86::R11))
++    if (IndCSPrefix && MI->hasRegisterImplicitUseOperand(X86::R11)) {
++	  /* 
++	   * eKCFI: we can eliminate mov instruction,
++	   * 64-bit system supports only r11 thunk
++	   */
++	  if (IndNOPPrefix) {
++      	emitX86Nops(*OutStreamer, 5, Subtarget);
++	  }
++
+       EmitAndCountInstruction(MCInstBuilder(X86::CS_PREFIX));
+-    [[fallthrough]];
++	}
++	[[fallthrough]];
+   case X86::TAILJMPr:
+   case X86::TAILJMPm:
+   case X86::TAILJMPd:
+   case X86::TAILJMPd_CC:
+-  case X86::TAILJMPr64:
++  // case X86::TAILJMPr64:
+   case X86::TAILJMPm64:
+   case X86::TAILJMPd64_CC:
+-  case X86::TAILJMPr64_REX:
++  // case X86::TAILJMPr64_REX:
+   case X86::TAILJMPm64_REX:
+     // Lower these as normal, but add some comments.
+     OutStreamer->AddComment("TAILCALL");
+@@ -2356,8 +2387,14 @@ void X86AsmPrinter::emitInstruction(const MachineInstr *MI) {
+                                 .addReg(X86::NoRegister));
+     return;
+   case X86::CALL64pcrel32:
+-    if (IndCSPrefix && MI->hasRegisterImplicitUseOperand(X86::R11))
+-      EmitAndCountInstruction(MCInstBuilder(X86::CS_PREFIX));
++    if (IndCSPrefix && MI->hasRegisterImplicitUseOperand(X86::R11)) {
++	
++	  if (IndNOPPrefix) {
++      	emitX86Nops(*OutStreamer, 5, Subtarget);
++	  }
++
++      EmitAndCountInstruction(MCInstBuilder(X86::CS_PREFIX));	
++	}
+     break;
+   }
+ 
+diff --git a/llvm/lib/Target/X86/X86ReturnThunks.cpp b/llvm/lib/Target/X86/X86ReturnThunks.cpp
+index a65e9bfe26b0..2b6b6f93521a 100644
+--- a/llvm/lib/Target/X86/X86ReturnThunks.cpp
++++ b/llvm/lib/Target/X86/X86ReturnThunks.cpp
+@@ -78,10 +78,20 @@ bool X86ReturnThunks::runOnMachineFunction(MachineFunction &MF) {
+ 
+   bool IndCS =
+       MF.getMMI().getModule()->getModuleFlag("indirect_branch_cs_prefix");
++  bool RetNOP =
++      MF.getMMI().getModule()->getModuleFlag("return_nop_prefix");
+   const MCInstrDesc &CS = ST.getInstrInfo()->get(X86::CS_PREFIX);
+   const MCInstrDesc &JMP = ST.getInstrInfo()->get(X86::TAILJMPd);
++  const MCInstrDesc &NOP = ST.getInstrInfo()->get(X86::NOOPL);
+ 
+   for (MachineInstr *Ret : Rets) {
++	if (RetNOP)
++		BuildMI(Ret->getParent(), Ret->getDebugLoc(), NOP)
++			.addReg(X86::RAX)
++			.addImm(1)
++        	.addReg(X86::RAX)
++			.addImm(8)
++			.addReg(0);
+     if (IndCS)
+       BuildMI(Ret->getParent(), Ret->getDebugLoc(), CS);
+     BuildMI(Ret->getParent(), Ret->getDebugLoc(), JMP)

@@ -1,0 +1,51 @@
+diff --git a/Makefile b/Makefile
+index 2fdd8b40b7e0..e4350f6f3694 100644
+--- a/Makefile
++++ b/Makefile
+@@ -773,6 +773,10 @@ ifdef CONFIG_FUNCTION_TRACER
+   CC_FLAGS_FTRACE := -pg
+ endif
+ 
++ifdef CONFIG_FUNCTION_EKCFI
++  CC_FLAGS_EKCFI := -mindirect-branch-nop-prefix -mreturn-nop-prefix
++endif
++
+ include $(srctree)/arch/$(SRCARCH)/Makefile
+ 
+ ifdef need-config
+@@ -904,6 +908,9 @@ else
+ # to "may-omit".
+ ifndef CONFIG_FUNCTION_TRACER
+ KBUILD_CFLAGS	+= -fomit-frame-pointer
++ifdef CONFIG_FUNCTION_EKCFI
++KBUILD_CFLAGS	+= $(CC_FLAGS_EKCFI)
++endif
+ endif
+ endif
+ 
+@@ -961,7 +968,7 @@ ifdef CONFIG_HAVE_FENTRY
+   endif
+ endif
+ export CC_FLAGS_FTRACE
+-KBUILD_CFLAGS	+= $(CC_FLAGS_FTRACE) $(CC_FLAGS_USING)
++KBUILD_CFLAGS	+= $(CC_FLAGS_FTRACE) $(CC_FLAGS_USING) $(CC_FLAGS_EKCFI)
+ KBUILD_AFLAGS	+= $(CC_FLAGS_USING)
+ endif
+ 
+diff --git a/kernel/trace/Kconfig b/kernel/trace/Kconfig
+index 61c541c36596..68f333f97e38 100644
+--- a/kernel/trace/Kconfig
++++ b/kernel/trace/Kconfig
+@@ -21,6 +21,12 @@ config RETHOOK
+ 	  API, which will be used by other function-entry hooking
+ 	  features like fprobe and kprobes.
+ 
++config FUNCTION_EKCFI
++	bool
++	default y
++	help
++	  Insrument mov/nop instructions before each indirect call
++
+ config HAVE_FUNCTION_TRACER
+ 	bool
+ 	help
