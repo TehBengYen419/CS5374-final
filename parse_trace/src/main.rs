@@ -98,6 +98,125 @@ fn pretty_print(ksyms: &Vec<Ksym>, trace_data: &str) {
     }
 }
 
+fn pretty_print_rev(ksyms: &Vec<Ksym>, trace_data: &str) {
+    for line in fs::read_to_string(trace_data).unwrap().lines() {
+        // Line format:
+        // comm-pid     [cpu] flags    time: kcfi_trace: caller => callee
+        let split_line: Vec<&str> = line.split_whitespace().collect();
+
+        let callee_addr = u64::from_str_radix(split_line[6].trim_start_matches("0x"), 16).unwrap();
+        let caller_addr = u64::from_str_radix(split_line[8].trim_start_matches("0x"), 16).unwrap();
+
+        let callee_result = &ksyms[..].binary_search(&Ksym::new(callee_addr, KsymType::Text, ""));
+        let callee = match callee_result {
+            Ok(idx) => &ksyms[*idx],
+            Err(insert_index) => {
+                if *insert_index > 0 {
+                    // println!("Last element before is {}", &ksyms[insert_index - 1]);
+                    &ksyms[insert_index - 1]
+                } else {
+                    // println!("No element before");
+                    &ksyms[*insert_index]
+                }
+            }
+        };
+
+        let caller_result = &ksyms[..].binary_search(&Ksym::new(caller_addr, KsymType::Text, ""));
+        let caller = match caller_result {
+            Ok(idx) => &ksyms[*idx],
+            Err(insert_index) => {
+                if *insert_index > 0 {
+                    // println!("Last element before is {}", &ksyms[insert_index - 1]);
+                    &ksyms[insert_index - 1]
+                } else {
+                    // println!("No element before");
+                    &ksyms[*insert_index]
+                }
+            }
+        };
+
+        println!("{} => {}", callee.get_name(), caller.get_name());
+    }
+}
+
+fn generate_pretty_rev(trace_data: &str, target_task: &str) {
+    let mut trace_result = HashMap::new();
+    let xdim: usize;
+    let mut ydim: usize = 0;
+
+    // Parse tracing data
+    let binding = fs::read_to_string(trace_data).unwrap();
+    for line in binding.lines() {
+        // Line format:
+        // comm-pid     [cpu] flags    time: kcfi_trace: caller => callee
+        let split_line: Vec<&str> = line.split_whitespace().collect();
+
+        // Parse caller and callee address
+        let callee_addr = split_line[0];
+        let caller_addr = split_line[2];
+
+        let entry = trace_result
+            .entry(callee_addr)
+            .or_insert(HashSet::<&str>::new());
+        entry.insert(caller_addr);
+        if entry.len() > ydim {
+            ydim = entry.len();
+        }
+    }
+    xdim = trace_result.len();
+
+    let f = fs::File::create("traces_pretty.rev").unwrap();
+    {
+        let mut writer = BufWriter::new(f);
+
+        // eBPF side map definition
+        writer.write(b"#ifdef __EBPF__\n\n").unwrap();
+
+        writer
+            .write_fmt(format_args!(
+                "#define NR_CALLERS {}\n\
+            struct {{\n\
+            \t__uint(type, BPF_MAP_TYPE_HASH);\n\
+            \t__type(key, __u32);\n\
+            \t__type(value, __u64 [NR_CALLERS]);\n\
+            \t__uint(max_entries, 1024);\n\
+            }} ret_map SEC(\".maps\");\n",
+                ydim
+            ))
+            .unwrap();
+
+        // Userside structure
+        writer.write(b"\n#else /* !__EBPF__ */\n\n").unwrap();
+
+        writer
+            .write_fmt(format_args!(
+                "static struct {{\n\tunsigned long long callee;\n\
+            \tunsigned long long callers[{}];\n}} call_trace [{}] = {{\n",
+                ydim, xdim
+            ))
+            .unwrap();
+
+        for (callee, callers) in trace_result.iter() {
+            writer.write(b"\t{\n").unwrap();
+            writer
+                .write_fmt(format_args!("\t\t.callee = {},\n", callee))
+                .unwrap();
+            writer.write(b"\t\t.callers = {\n").unwrap();
+            for (idx, caller) in callers.iter().enumerate() {
+                writer
+                    .write_fmt(format_args!("\t\t\t[{}] = {},\n", idx, caller))
+                    .unwrap();
+            }
+            writer.write(b"\t\t},\n").unwrap();
+            writer.write(b"\t},\n").unwrap();
+        }
+
+        writer.write(b"};\n").unwrap();
+
+        writer.write(b"\n#endif /* __EBPF__ */\n").unwrap();
+    }
+}
+
 fn generate_rev(trace_data: &str, target_task: &str) {
     let mut trace_result = HashMap::new();
     let xdim: usize;
@@ -118,7 +237,9 @@ fn generate_rev(trace_data: &str, target_task: &str) {
         let callee_addr = u64::from_str_radix(split_line[6].trim_start_matches("0x"), 16).unwrap();
         let caller_addr = u64::from_str_radix(split_line[8].trim_start_matches("0x"), 16).unwrap();
 
-        let entry = trace_result.entry(callee_addr).or_insert(HashSet::<u64>::new());
+        let entry = trace_result
+            .entry(callee_addr)
+            .or_insert(HashSet::<u64>::new());
         entry.insert(caller_addr);
         if entry.len() > ydim {
             ydim = entry.len();
@@ -133,27 +254,40 @@ fn generate_rev(trace_data: &str, target_task: &str) {
         // eBPF side map definition
         writer.write(b"#ifdef __EBPF__\n\n").unwrap();
 
-        writer.write_fmt(format_args!("#define NR_CALLERS {}\n\
+        writer
+            .write_fmt(format_args!(
+                "#define NR_CALLERS {}\n\
             struct {{\n\
             \t__uint(type, BPF_MAP_TYPE_HASH);\n\
             \t__type(key, __u32);\n\
             \t__type(value, __u64 [NR_CALLERS]);\n\
             \t__uint(max_entries, 1024);\n\
-            }} ret_map SEC(\".maps\");\n", ydim)).unwrap();
+            }} ret_map SEC(\".maps\");\n",
+                ydim
+            ))
+            .unwrap();
 
         // Userside structure
         writer.write(b"\n#else /* !__EBPF__ */\n\n").unwrap();
 
-        writer.write_fmt(format_args!(
-            "static struct {{\n\tunsigned long long callee;\n\
-            \tunsigned long long callers[{}];\n}} call_trace [{}] = {{\n", ydim, xdim)).unwrap();
+        writer
+            .write_fmt(format_args!(
+                "static struct {{\n\tunsigned long long callee;\n\
+            \tunsigned long long callers[{}];\n}} call_trace [{}] = {{\n",
+                ydim, xdim
+            ))
+            .unwrap();
 
         for (callee, callers) in trace_result.iter() {
             writer.write(b"\t{\n").unwrap();
-            writer.write_fmt(format_args!("\t\t.callee = {:#x}ULL,\n", callee)).unwrap();
+            writer
+                .write_fmt(format_args!("\t\t.callee = {:#x}ULL,\n", callee))
+                .unwrap();
             writer.write(b"\t\t.callers = {\n").unwrap();
             for (idx, caller) in callers.iter().enumerate() {
-                writer.write_fmt(format_args!("\t\t\t[{}] = {:#x}ULL,\n", idx, caller)).unwrap();
+                writer
+                    .write_fmt(format_args!("\t\t\t[{}] = {:#x}ULL,\n", idx, caller))
+                    .unwrap();
             }
             writer.write(b"\t\t},\n").unwrap();
             writer.write(b"\t},\n").unwrap();
@@ -185,7 +319,9 @@ fn generate_inc(trace_data: &str, target_task: &str) {
         let caller_addr = u64::from_str_radix(split_line[6].trim_start_matches("0x"), 16).unwrap();
         let callee_addr = u64::from_str_radix(split_line[8].trim_start_matches("0x"), 16).unwrap();
 
-        let entry = trace_result.entry(caller_addr).or_insert(HashSet::<u64>::new());
+        let entry = trace_result
+            .entry(caller_addr)
+            .or_insert(HashSet::<u64>::new());
         entry.insert(callee_addr);
         if entry.len() > ydim {
             ydim = entry.len();
@@ -200,27 +336,40 @@ fn generate_inc(trace_data: &str, target_task: &str) {
         // eBPF side map definition
         writer.write(b"#ifdef __EBPF__\n\n").unwrap();
 
-        writer.write_fmt(format_args!("#define NR_CALLEES {}\n\
+        writer
+            .write_fmt(format_args!(
+                "#define NR_CALLEES {}\n\
             struct {{\n\
             \t__uint(type, BPF_MAP_TYPE_HASH);\n\
             \t__type(key, __u32);\n\
             \t__type(value, __u64 [NR_CALLEES]);\n\
             \t__uint(max_entries, 1024);\n\
-            }} call_map SEC(\".maps\");\n", ydim)).unwrap();
+            }} call_map SEC(\".maps\");\n",
+                ydim
+            ))
+            .unwrap();
 
         // Userside structure
         writer.write(b"\n#else /* !__EBPF__ */\n\n").unwrap();
 
-        writer.write_fmt(format_args!(
-            "static struct {{\n\tunsigned long long caller;\n\
-            \tunsigned long long callees[{}];\n}} call_trace [{}] = {{\n", ydim, xdim)).unwrap();
+        writer
+            .write_fmt(format_args!(
+                "static struct {{\n\tunsigned long long caller;\n\
+            \tunsigned long long callees[{}];\n}} call_trace [{}] = {{\n",
+                ydim, xdim
+            ))
+            .unwrap();
 
         for (caller, callees) in trace_result.iter() {
             writer.write(b"\t{\n").unwrap();
-            writer.write_fmt(format_args!("\t\t.caller = {:#x}ULL,\n", caller)).unwrap();
+            writer
+                .write_fmt(format_args!("\t\t.caller = {:#x}ULL,\n", caller))
+                .unwrap();
             writer.write(b"\t\t.callees = {\n").unwrap();
             for (idx, callee) in callees.iter().enumerate() {
-                writer.write_fmt(format_args!("\t\t\t[{}] = {:#x}ULL,\n", idx, callee)).unwrap();
+                writer
+                    .write_fmt(format_args!("\t\t\t[{}] = {:#x}ULL,\n", idx, callee))
+                    .unwrap();
             }
             writer.write(b"\t\t},\n").unwrap();
             writer.write(b"\t},\n").unwrap();
@@ -242,6 +391,11 @@ fn main() {
             let ksyms = parse_system_map(&args.system_map.expect("expecting System.map")).unwrap();
             pretty_print(&ksyms, &trace_data);
         }
+        "pretty-print-rev" => {
+            // Read System.map (kernel symbols), sorted by addresses
+            let ksyms = parse_system_map(&args.system_map.expect("expecting System.map")).unwrap();
+            pretty_print_rev(&ksyms, &trace_data);
+        }
         "generate-inc" => {
             let target_task = args.task.expect("expecting task name");
             generate_inc(&trace_data, &target_task);
@@ -249,6 +403,10 @@ fn main() {
         "generate-rev" => {
             let target_task = args.task.expect("expecting task name");
             generate_rev(&trace_data, &target_task);
+        }
+        "generate-pretty-rev" => {
+            let target_task = args.task.expect("expecting task name");
+            generate_pretty_rev(&trace_data, &target_task);
         }
         _ => panic!("invalid mode of operation"),
     }
