@@ -1,0 +1,1 @@
+savedcmd_/home/akira/Documents/SSD/final/ekcfi/hw2/rootkit.mod := printf '%s\n'   rootkit.o | awk '!x[$$0]++ { print("/home/akira/Documents/SSD/final/ekcfi/hw2/"$$0) }' > /home/akira/Documents/SSD/final/ekcfi/hw2/rootkit.mod
