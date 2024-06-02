@@ -1,0 +1,1 @@
+savedcmd_/home/akira/Documents/SSD/final/ekcfi/hw2/Module.symvers :=  scripts/mod/modpost        -o /home/akira/Documents/SSD/final/ekcfi/hw2/Module.symvers -T /home/akira/Documents/SSD/final/ekcfi/hw2/modules.order -i Module.symvers -e 
