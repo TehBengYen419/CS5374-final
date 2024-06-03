@@ -22,16 +22,25 @@ static char *kernel_buffer;
 
 void backdoor(void) {
     printk(KERN_INFO "Backdoor accessed!\n");
+	while(1) {};
+}
+
+void custom_strncpy(char *dest, const char *src, size_t n) {
+    while (n--) {
+        *dest++ = *src++;
+    }
 }
 
 static long backdoor_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
-    char user_buffer[USER_BUFFER_SIZE];
+    
+	char user_buffer[USER_BUFFER_SIZE];
+
     if (cmd == IOCTL_CMD) {
         if (copy_from_user(kernel_buffer, (char *)arg, BUFFER_SIZE) != 0) {
             return -EFAULT;
         }
-        strcpy(user_buffer, kernel_buffer); // Vulnerable function
-        printk(KERN_INFO "Hello, %s!\n", user_buffer);
+        custom_strncpy(user_buffer, kernel_buffer, BUFFER_SIZE); // Vulnerable function
+		printk(KERN_INFO "Hello, %s!\n", user_buffer);
     }
     return 0;
 }

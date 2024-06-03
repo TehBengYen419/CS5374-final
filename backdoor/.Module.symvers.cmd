@@ -1,0 +1,1 @@
+savedcmd_/home/akira/Documents/SSD/final/ekcfi/backdoor/Module.symvers :=  scripts/mod/modpost        -o /home/akira/Documents/SSD/final/ekcfi/backdoor/Module.symvers -T /home/akira/Documents/SSD/final/ekcfi/backdoor/modules.order -i Module.symvers -e 
