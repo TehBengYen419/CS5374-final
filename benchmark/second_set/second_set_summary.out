@@ -1,0 +1,115 @@
+make[1]: Entering directory '/home/jsht/Desktop/course/project/ekcfi/linux/benchmark/lmbench-3.0-a9/results'
+
+                 L M B E N C H  3 . 0   S U M M A R Y
+                 ------------------------------------
+		 (Alpha software, do not distribute)
+
+Basic system parameters
+------------------------------------------------------------------------------
+Host                 OS Description              Mhz  tlb  cache  mem   scal
+                                                     pages line   par   load
+                                                           bytes  
+--------- ------------- ----------------------- ---- ----- ----- ------ ----
+q         Linux 6.5.0-d        x86_64-linux-gnu 3534          64           1
+q         Linux 6.5.0-d        x86_64-linux-gnu 3534          64           1
+q         Linux 6.5.0-d        x86_64-linux-gnu 3534          64           1
+
+Processor, Processes - times in microseconds - smaller is better
+------------------------------------------------------------------------------
+Host                 OS  Mhz null null      open slct sig  sig  fork exec sh  
+                             call  I/O stat clos TCP  inst hndl proc proc proc
+--------- ------------- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
+q         Linux 6.5.0-d 3534 0.10 0.13 2162 3300 2.12 0.16 1.37 357. 18.K 38.K
+q         Linux 6.5.0-d 3534 0.10 0.12 2541 3143 2.20 0.17 1.39 330. 18.K 38.K
+q         Linux 6.5.0-d 3534 0.09 0.12 2827 3573 2.26 0.17 1.40 354. 17.K 43.K
+
+Basic integer operations - times in nanoseconds - smaller is better
+-------------------------------------------------------------------
+Host                 OS  intgr intgr  intgr  intgr  intgr  
+                          bit   add    mul    div    mod   
+--------- ------------- ------ ------ ------ ------ ------ 
+q         Linux 6.5.0-d                                   
+q         Linux 6.5.0-d                                   
+q         Linux 6.5.0-d                                   
+
+Basic uint64 operations - times in nanoseconds - smaller is better
+------------------------------------------------------------------
+Host                 OS int64  int64  int64  int64  int64  
+                         bit    add    mul    div    mod   
+--------- ------------- ------ ------ ------ ------ ------ 
+q         Linux 6.5.0-d                                   
+q         Linux 6.5.0-d                                   
+q         Linux 6.5.0-d                                   
+
+Basic float operations - times in nanoseconds - smaller is better
+-----------------------------------------------------------------
+Host                 OS  float  float  float  float
+                         add    mul    div    bogo
+--------- ------------- ------ ------ ------ ------ 
+q         Linux 6.5.0-d                            
+q         Linux 6.5.0-d                            
+q         Linux 6.5.0-d                            
+
+Basic double operations - times in nanoseconds - smaller is better
+------------------------------------------------------------------
+Host                 OS  double double double double
+                         add    mul    div    bogo
+--------- ------------- ------  ------ ------ ------ 
+q         Linux 6.5.0-d                            
+q         Linux 6.5.0-d                            
+q         Linux 6.5.0-d                            
+
+Context switching - times in microseconds - smaller is better
+-------------------------------------------------------------------------
+Host                 OS  2p/0K 2p/16K 2p/64K 8p/16K 8p/64K 16p/16K 16p/64K
+                         ctxsw  ctxsw  ctxsw ctxsw  ctxsw   ctxsw   ctxsw
+--------- ------------- ------ ------ ------ ------ ------ ------- -------
+q         Linux 6.5.0-d  223.0  328.1  189.2  212.1  258.2   188.3   352.2
+q         Linux 6.5.0-d  226.3  284.4  285.2  383.9  217.0   266.9   308.5
+q         Linux 6.5.0-d  216.1  233.6  229.7  200.8  303.3   271.6   221.8
+
+*Local* Communication latencies in microseconds - smaller is better
+---------------------------------------------------------------------
+Host                 OS 2p/0K  Pipe AF     UDP  RPC/   TCP  RPC/ TCP
+                        ctxsw       UNIX         UDP         TCP conn
+--------- ------------- ----- ----- ---- ----- ----- ----- ----- ----
+q         Linux 6.5.0-d 223.0 590.2 467.                             
+q         Linux 6.5.0-d 226.3 571.5 687.                             
+q         Linux 6.5.0-d 216.1 494.8 777.                             
+
+*Remote* Communication latencies in microseconds - smaller is better
+---------------------------------------------------------------------
+Host                 OS   UDP  RPC/  TCP   RPC/ TCP
+                               UDP         TCP  conn
+--------- ------------- ----- ----- ----- ----- ----
+q         Linux 6.5.0-d                             
+q         Linux 6.5.0-d                             
+q         Linux 6.5.0-d                             
+
+File & VM system latencies in microseconds - smaller is better
+-------------------------------------------------------------------------------
+Host                 OS   0K File      10K File     Mmap    Prot   Page   100fd
+                        Create Delete Create Delete Latency Fault  Fault  selct
+--------- ------------- ------ ------ ------ ------ ------- ----- ------- -----
+q         Linux 6.5.0-d 5882.4 5025.1 3649.6 4115.2         0.881         1.001
+q         Linux 6.5.0-d 5524.9 4273.5 3246.8 3676.5         0.850         0.989
+q         Linux 6.5.0-d 5780.3 4524.9 5988.0 4608.3         0.864         0.965
+
+*Local* Communication bandwidths in MB/s - bigger is better
+-----------------------------------------------------------------------------
+Host                OS  Pipe AF    TCP  File   Mmap  Bcopy  Bcopy  Mem   Mem
+                             UNIX      reread reread (libc) (hand) read write
+--------- ------------- ---- ---- ---- ------ ------ ------ ------ ---- -----
+q         Linux 6.5.0-d 348. 494.       169.9 1776.5 7011.6 4367.4 8598 7543.
+q         Linux 6.5.0-d 306. 538.       173.6  311.2 6734.1 4289.9 8244 7700.
+q         Linux 6.5.0-d 235. 415.       231.3 8784.5 6989.3 4119.8 8529 7645.
+
+Memory latencies in nanoseconds - smaller is better
+    (WARNING - may not be correct, check graphs)
+------------------------------------------------------------------------------
+Host                 OS   Mhz   L1 $   L2 $    Main mem    Rand mem    Guesses
+--------- -------------   ---   ----   ----    --------    --------    -------
+q         Linux 6.5.0-d  3534     -      -           -    Bad mhz?
+q         Linux 6.5.0-d  3534     -      -           -    Bad mhz?
+q         Linux 6.5.0-d  3534     -      -           -    Bad mhz?
+make[1]: Leaving directory '/home/jsht/Desktop/course/project/ekcfi/linux/benchmark/lmbench-3.0-a9/results'
